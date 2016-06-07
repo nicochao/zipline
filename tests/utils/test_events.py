@@ -374,7 +374,7 @@ class TestStatelessRules(RuleTestCase):
         rule.next_date_end = next_date_end
 
         expected_first_trading_day_of_week = \
-            pd.Timestamp(first_trading_day_of_week, tz='UTC').date() \
+            pd.Timestamp(first_trading_day_of_week, tz='UTC') \
             if first_trading_day_of_week else None
 
         self.assertEqual(rule.get_first_trading_day_of_week(dt, env),

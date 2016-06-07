@@ -72,29 +72,6 @@ def ensure_utc(time, tz='UTC'):
     return time.replace(tzinfo=pytz.utc)
 
 
-def _coerce_datetime(maybe_dt):
-    if isinstance(maybe_dt, datetime.datetime):
-        return maybe_dt
-    elif isinstance(maybe_dt, datetime.date):
-        return datetime.datetime(
-            year=maybe_dt.year,
-            month=maybe_dt.month,
-            day=maybe_dt.day,
-            tzinfo=pytz.utc,
-        )
-    elif isinstance(maybe_dt, (tuple, list)) and len(maybe_dt) == 3:
-        year, month, day = maybe_dt
-        return datetime.datetime(
-            year=year,
-            month=month,
-            day=day,
-            tzinfo=pytz.utc,
-        )
-    else:
-        raise TypeError('Cannot coerce %s into a datetime.datetime'
-                        % type(maybe_dt).__name__)
-
-
 def _out_of_range_error(a, b=None, var='offset'):
     start = 0
     if b is None:
@@ -436,33 +413,28 @@ class TradingDayOfWeekRule(six.with_metaclass(ABCMeta, StatelessRule)):
         raise NotImplementedError
 
     def calculate_start_and_end(self, dt, env):
-        new_date = self.date_func(dt, env)
-        if not new_date:
-            return
+        while True:
+            new_date = self.date_func(dt, env)
+            if not new_date:
+                return
 
-        try:
-            next_trading_day = _coerce_datetime(
-                env.add_trading_days(
+            try:
+                next_trading_day = env.add_trading_days(
                     self.td_delta,
                     new_date,
                 )
-            )
-        except (NoFurtherDataError, TypeError):
-            return
-
-        # If after applying the offset to the start/end day of the week, we get
-        # day in a different week, skip this week and go on to the next
-        while next_trading_day.isocalendar()[1] != dt.isocalendar()[1]:
-            dt += datetime.timedelta(days=7)
-            try:
-                next_trading_day = _coerce_datetime(
-                    env.add_trading_days(
-                        self.td_delta,
-                        self.date_func(dt, env),
-                    )
-                )
-            except (NoFurtherDataError, TypeError):
+            except NoFurtherDataError:
                 return
+
+            if not next_trading_day:
+                return
+
+            # If after applying the offset to the start/end day of the week, we
+            # get day in a different week, skip this week and go on to the next
+            if next_trading_day.isocalendar()[1] == dt.isocalendar()[1]:
+                break
+            else:
+                dt += datetime.timedelta(days=7)
 
         next_open, next_close = env.get_open_and_close(next_trading_day)
         self.next_date_start = next_open
@@ -510,11 +482,9 @@ class NthTradingDayOfWeek(TradingDayOfWeekRule):
             dt = env.previous_trading_day(dt)
 
         if env.is_trading_day(prev):
-            return prev.date()
-        elif env.next_trading_day(prev):
-            return env.next_trading_day(prev).date()
+            return prev
         else:
-            return None
+            return env.next_trading_day(prev)
 
     date_func = get_first_trading_day_of_week
 
@@ -537,11 +507,12 @@ class NDaysBeforeLastTradingDayOfWeek(TradingDayOfWeekRule):
             dt = env.next_trading_day(dt)
 
         if env.is_trading_day(prev):
-            return prev.date()
+            return prev
         else:
-            return env.previous_trading_day(prev).date()
+            return env.previous_trading_day(prev)
 
     date_func = get_last_trading_day_of_week
+
 
 
 class NthTradingDayOfMonth(StatelessRule):
